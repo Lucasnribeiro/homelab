@@ -1,0 +1,106 @@
+version: '3.8'
+
+# Example docker-compose.yml for web development stack
+# This runs on Windows desktop but can be managed from MacBook
+#
+# Usage:
+#   1. Switch to Windows context: docker context use windows-desktop
+#   2. cd to your project directory
+#   3. docker-compose up -d
+#
+# Note: For volume mounts, you'll need to:
+#   - Share your MacBook project directory via SMB
+#   - Map it as a network drive on Windows
+#   - Use the Windows path in volumes (e.g., //MacBook-IP/projects/myapp:/app)
+
+services:
+  # Web server (Nginx example)
+  web:
+    image: nginx:alpine
+    container_name: homelab-web
+    ports:
+      - "8080:80"
+    volumes:
+      # Example: Mount your project from MacBook SMB share
+      # Replace with your actual Windows path to MacBook share
+      # - //192.168.1.50/projects/myapp:/usr/share/nginx/html:ro
+      - ./html:/usr/share/nginx/html:ro
+    depends_on:
+      - app
+    networks:
+      - homelab-network
+
+  # Application server (Node.js example)
+  app:
+    image: node:18-alpine
+    container_name: homelab-app
+    working_dir: /app
+    command: sh -c "npm install && npm start"
+    volumes:
+      # Example: Mount your project from MacBook SMB share
+      # - //192.168.1.50/projects/myapp:/app
+      - ./app:/app
+    environment:
+      - NODE_ENV=development
+      - DATABASE_URL=postgresql://user:password@db:5432/mydb
+      - REDIS_URL=redis://cache:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+      - cache
+    networks:
+      - homelab-network
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: homelab-db
+    environment:
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=mydb
+    volumes:
+      # Database data stored on Windows local storage (better performance)
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - homelab-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  cache:
+    image: redis:7-alpine
+    container_name: homelab-cache
+    command: redis-server --appendonly yes
+    volumes:
+      # Cache data stored on Windows local storage
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - homelab-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  # Named volumes stored on Windows local storage
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+
+networks:
+  homelab-network:
+    driver: bridge
+
+
+
