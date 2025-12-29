@@ -30,11 +30,11 @@ if (-not $dockerPath) {
 
 # Test Docker is running
 try {
-    $dockerVersion = docker version --format '{{.Server.Version}}' 2>&1
+    $dockerOutput = docker version --format '{{.Server.Version}}' 2>&1
     if ($LASTEXITCODE -ne 0) {
         Write-Host "WARNING: Docker Desktop may not be running. Please start it and try again." -ForegroundColor Yellow
     } else {
-        Write-Host "✓ Docker Desktop is installed and running (version: $dockerVersion)" -ForegroundColor Green
+        Write-Host "✓ Docker Desktop is installed and running (version: $dockerOutput)" -ForegroundColor Green
     }
 } catch {
     Write-Host "WARNING: Could not verify Docker is running. Please ensure Docker Desktop is started." -ForegroundColor Yellow
@@ -57,8 +57,8 @@ Start-Service sshd
 Set-Service -Name sshd -StartupType 'Automatic'
 
 # Configure SSH to allow key-based authentication
-$sshdConfigPath = "$env:ProgramData\ssh\sshd_config"
-$sshdConfigBackup = "$sshdConfigPath.backup"
+$sshdConfigPath = Join-Path $env:ProgramData "ssh\sshd_config"
+$sshdConfigBackup = $sshdConfigPath + ".backup"
 
 # Backup existing config
 if (Test-Path $sshdConfigPath) {
@@ -67,19 +67,32 @@ if (Test-Path $sshdConfigPath) {
 }
 
 # Ensure required settings in sshd_config
-$sshdConfig = Get-Content $sshdConfigPath -Raw
+if (Test-Path $sshdConfigPath) {
+    $sshdConfig = Get-Content $sshdConfigPath -Raw
+} else {
+    $sshdConfig = ""
+}
+
 $requiredSettings = @{
     'PubkeyAuthentication' = 'yes'
-    'PasswordAuthentication' = 'yes'  # Allow both for initial setup
+    'PasswordAuthentication' = 'yes'
     'PermitRootLogin' = 'no'
 }
 
 foreach ($setting in $requiredSettings.GetEnumerator()) {
-    $pattern = "^\s*#?\s*$($setting.Key)\s+.*"
+    $key = $setting.Key
+    $value = $setting.Value
+    $escapedKey = [regex]::Escape($key)
+    $pattern = '^\s*#?\s*' + $escapedKey + '\s+.*'
+    
     if ($sshdConfig -match $pattern) {
-        $sshdConfig = $sshdConfig -replace $pattern, "$($setting.Key) $($setting.Value)"
+        $replacement = $key + ' ' + $value
+        $sshdConfig = $sshdConfig -replace $pattern, $replacement
     } else {
-        $sshdConfig += "`n$($setting.Key) $($setting.Value)"
+        if ($sshdConfig.Length -gt 0) {
+            $sshdConfig += [Environment]::NewLine
+        }
+        $sshdConfig += $key + ' ' + $value
     }
 }
 
@@ -105,7 +118,8 @@ if (-not $firewallRule) {
 Write-Host ""
 Write-Host "[4/5] Gathering system information..." -ForegroundColor Yellow
 
-$windowsIP = (Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" } | Select-Object -First 1).IPAddress
+$networkAdapters = Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress -notlike "127.*" -and $_.IPAddress -notlike "169.254.*" }
+$windowsIP = ($networkAdapters | Select-Object -First 1).IPAddress
 $windowsHostname = $env:COMPUTERNAME
 $windowsUser = $env:USERNAME
 
@@ -117,7 +131,7 @@ Write-Host "✓ Windows User: $windowsUser" -ForegroundColor Green
 Write-Host ""
 Write-Host "[5/5] Setting up SSH directory..." -ForegroundColor Yellow
 
-$sshDir = "$env:USERPROFILE\.ssh"
+$sshDir = Join-Path $env:USERPROFILE ".ssh"
 if (-not (Test-Path $sshDir)) {
     New-Item -ItemType Directory -Path $sshDir -Force | Out-Null
 }
@@ -138,7 +152,8 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "1. On your MacBook, run the setup script:" -ForegroundColor White
-Write-Host "   cd macbook && ./setup.sh" -ForegroundColor Gray
+Write-Host "   cd macbook" -ForegroundColor Gray
+Write-Host "   ./setup.sh" -ForegroundColor Gray
 Write-Host ""
 Write-Host "2. The MacBook script will:" -ForegroundColor White
 Write-Host "   - Generate SSH key (if needed)" -ForegroundColor Gray
@@ -152,8 +167,6 @@ Write-Host "  Windows User: $windowsUser" -ForegroundColor White
 Write-Host "  SSH Port: 22" -ForegroundColor White
 Write-Host ""
 Write-Host "To connect manually, use:" -ForegroundColor Yellow
-Write-Host "  ssh $windowsUser@$windowsIP" -ForegroundColor Gray
+$sshCommand = "ssh {0}@{1}" -f $windowsUser, $windowsIP
+Write-Host "  $sshCommand" -ForegroundColor Gray
 Write-Host ""
-
-
-
